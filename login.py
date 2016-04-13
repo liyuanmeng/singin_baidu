@@ -197,8 +197,9 @@ class UserLogin:
         else:
             print('登录失败.')
         return
-
+'''
 if __name__ == '__main__':
     baidu = UserLogin('', '')
     if not baidu.isLogin:
         baidu.sign_in()
+'''
