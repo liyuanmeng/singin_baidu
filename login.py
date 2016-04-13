@@ -19,15 +19,6 @@ L_HEADER = {
     "Connection": "keep-alive"
 }
 
-R_HEADER = {
-    "Host": "zhidao.baidu.com",
-    "User-Agent": 'Mozilla/5.0 (Windows NT 6.1; rv:45.0) Gecko/20100101 Firefox/45.0',
-    "Accept": 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    "Referer": "http://zhidao.baidu.com/uadmin/commontag",
-    "Connection": "keep - alive",
-    "Cache - Control": "max - age = 0"
-}
-
 
 class HttpReturn:
     def __init__(self):
