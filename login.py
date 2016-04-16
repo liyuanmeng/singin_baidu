@@ -4,10 +4,11 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import http.cookiejar
+import json
 import os
 
-#  err_no   0:登录成功，４:密码错误，６:验证码错误, 527:请输入验证码　　　
 
+#  err_no   0:登录成功，４:密码错误，６:验证码错误, 527:请输入验证码　　　
 
 L_HEADER = {
     "Host": "passport.baidu.com",
@@ -19,63 +20,90 @@ L_HEADER = {
     "Connection": "keep-alive"
 }
 
-
 class HttpReturn:
     def __init__(self):
-        self.text = ''
+        self.text = 'timeout'
         self.status = 0
+        self.obj = None
 
 
 def timestamp():
-    return int(time.time()*1000 )
+    return int(time.time()*1000)
 
 
-def get(url, headers={}):
-    req = urllib.request.Request(url, None, headers)
-    hr = urllib.request.urlopen(req, timeout=2)
+def now():
+    nt = time.localtime()
+    return '%d-%02d-%02d %02d:%02d:%02d# ' % (nt.tm_year, nt.tm_mon, nt.tm_mday, nt.tm_hour, nt.tm_min, nt.tm_sec)
+
+
+def get(url, headers=None, timeout=2):
     rt = HttpReturn()
-    rt.text = hr.read().decode('utf-8')
-    rt.status = hr.status
-    return rt
+    try:
+        if headers is None:
+            hr = urllib.request.urlopen(url, timeout=timeout)
+        else:
+            req = urllib.request.Request(url, None, headers)
+            hr = urllib.request.urlopen(req, timeout=timeout)
+        rt.text = hr.read().decode('utf-8')
+        rt.status = hr.status
+        rt.obj = hr
+    finally:
+        return rt
 
 
-def post(url, data=None, headers={}):
+def post(url, data=None, headers=None, timeout=2):
+    rt = HttpReturn()
+    if headers is None:
+        headers = {}
     post_data = urllib.parse.urlencode(data).encode('utf-8')
-    req = urllib.request.Request(url, post_data, headers)
-    hr = urllib.request.urlopen(req, timeout=2)
-    rt = HttpReturn()
-    rt.text = hr.read().decode('utf-8')
-    rt.status = hr.status
-    return rt
+    try:
+        req = urllib.request.Request(url, post_data, headers)
+        hr = urllib.request.urlopen(req, timeout=timeout)
+        rt = HttpReturn()
+        rt.text = hr.read().decode('utf-8')
+        rt.status = hr.status
+        rt.obj = rt
+    finally:
+        return rt
 
 
 class UserLogin:
-    def __init__(self, username, password):
-        print('正在登录百度...')
+    __header = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 6.1; rv:45.0) Gecko/20100101 Firefox/45.0"
+        }
+
+    def __init__(self, username, password, mem_pass=True):
+        print(now(), '正在登录百度...')
+        self.mem_pass = mem_pass
         self.cj = None
         self.isLogin = False
-        self.username = username
-        self.password = password
         self.token = ''
-        if self.__set_cookie():
-            return
-        self.tt = timestamp()
-        if username == '':
+        self.Cookies = {}
+        self.now_user = ''
+        if username == '' and password == '':
             self.username = input('请输入用户名:')
             self.password = input('请输入密码:')
+        else:
+            self.username = username
+            self.password = password
+        if self.__set_cookie():
+            if self.now_user == self.username:
+                return
+        self.tt = timestamp()
         self.sign_url = 'https://passport.baidu.com/v2/api/?login'
         self.sign_in()
 
     def __set_cookie(self):
-        self.cj = http.cookiejar.LWPCookieJar('Cookie.txt')
-        if os.path.exists('Cookie.txt'):
-            self.cj.load('Cookie.txt')
+        self.cj = http.cookiejar.MozillaCookieJar('Cookie.txt')   # LWPCookieJar('Cookie.txt')
+        if self.mem_pass:
+            if os.path.exists('Cookie.txt'):
+                self.cj.load('Cookie.txt')
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cj))
         urllib.request.install_opener(opener)
         urllib.request.urlopen('http://www.baidu.com/')
         return self.__has_sign_in()
 
-    def __get_cookie_str(self):
+    def get_cookie_str(self):
         rt = ''
         for item in self.cj:
             t = re.search('\S+=\S+', str(item)).group(0)
@@ -91,15 +119,24 @@ class UserLogin:
             self.isLogin = False
             return False
         else:
-            print("已经登录!")
+            m = re.findall('<span class=user-name>([^>]+)</span>', rsp.text)
+            self.now_user = m[0]
+            print("用户%s已经登录!" % self.now_user)
             self.isLogin = True
             self.cj.save()
+            for item in self.cj:
+                t = re.search('\S+=\S+', str(item)).group(0)
+                k = t[:t.index('=')]
+                v = t[len(k) + 1:]
+                self.Cookies[k] = v
             return True
 
     def __get_token(self, tt):
         """获取token"""
-        url = "https://passport.baidu.com/v2/api/?getapi&tpl=pp&apiver=v3&tt=%s&class=login&logintype=dialogLogin" % str(tt)
-        rsp = get(url)
+        url = "https://passport.baidu.com/v2/api/?getapi&tpl=pp&apiver=v3&tt=%s&class=login&logintype=dialogLogin" \
+              % str(tt)
+        self.__header['cookit'] = self.get_cookie_str()
+        rsp = get(url, self.__header)
         match = re.search('"token" : "(?P<tokenVal>.*?)"', rsp.text)
         token = match.group('tokenVal')
         self.token = token
@@ -109,10 +146,10 @@ class UserLogin:
     def __get_verify_code(code_string):
         """获取验证码"""
         url = "https://passport.baidu.com/cgi-bin/genimage?" + code_string
-        rsp = urllib.request.urlopen(url, timeout=2).read()
+        rsp = get(url)
         path = 'code.jpg'
         with open(path, 'wb') as f:
-            f.write(rsp)
+            f.write(rsp.obj.read())
             f.flush()
             f.close()
         os.startfile(path)
@@ -154,22 +191,20 @@ class UserLogin:
             'codestring': '',
             'verifycode': '',
             'staticpage': 'https://passport.baidu.com/static/passpc-account/html/v3Jump.html',
-            'isPhone': 'false'
+            'isPhone': 'false',
+            'mem_pass': 'on'
         }
         return data
 
     def sign_in(self):
         if self.__has_sign_in():
-            print('return')
+            print(now(), '已登录.')
             return
         self.tt = timestamp()
         token = self.__get_token(timestamp())
-        header = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:45.0) Gecko/20100101 Firefox/45.0"
-        }
         post_data = self.__first_post()
-        header['cookie'] = self.__get_cookie_str()
-        rsp = post(self.sign_url, post_data, header)
+        self.__header['cookit'] = self.get_cookie_str()
+        rsp = post(self.sign_url, post_data, self.__header)
         match = re.findall('error=(\d+)', rsp.text)
         if not match:
             print(rsp.text)
@@ -178,25 +213,27 @@ class UserLogin:
             codestring = re.findall(r'codestring=(.*?)&username', rsp.text)[0]
             code = self.__get_verify_code(codestring)
             post_data = self.__get_post_data(token, codestring, code)
-            header['cookie'] = self.__get_cookie_str()
-            rsp = post(self.sign_url, post_data, header)
+            self.__header['cookit'] = self.get_cookie_str()
+            rsp = post(self.sign_url, post_data, self.__header)
             __match = re.findall('err_no=(\d+)&', rsp.text)
             if not __match:
                 print(rsp.text)
             if __match[0] == '0':
-                print('登录成功.')
-                self.isLogin = True
-                self.cj.save()
+                # print(now(), '登录成功.')
+                # self.isLogin = True
+                # self.cj.save()
+                pass
             else:
-                print('登录失败.')
+                print(now(), '登录失败. 错误代码:', __match[0])
                 self.isLogin = False
         elif match[0] == '0':
-            print('登录成功.')
-            self.isLogin = True
-            self.cj.save()
+            # print(now(), '登录成功.')
+            # self.isLogin = True
+            # self.cj.save()
+            pass
         else:
-            print('登录失败.')
-        return
+            print(now(), '登录失败. 错误代码:', match[0])
+        return self.__has_sign_in()
 '''
 if __name__ == '__main__':
     baidu = UserLogin('', '')
