@@ -6,6 +6,7 @@ import urllib.error
 import http.cookiejar
 import json
 import os
+import hashlib
 
 
 #  err_no   0:登录成功，４:密码错误，６:验证码错误, 527:请输入验证码　　　
@@ -19,6 +20,16 @@ L_HEADER = {
     "Cache-Control": "max-age=0",
     "Connection": "keep-alive"
 }
+
+R_HEADER = {
+    "Host": "zhidao.baidu.com",
+    "User-Agent": 'Mozilla/5.0 (Windows NT 6.1; rv:45.0) Gecko/20100101 Firefox/45.0',
+    "Accept": 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    "Referer": "http://zhidao.baidu.com/uadmin/commontag",
+    "Connection": "keep - alive",
+    "Cache - Control": "max - age = 0"
+}
+
 
 class HttpReturn:
     def __init__(self):
@@ -36,7 +47,7 @@ def now():
     return '%d-%02d-%02d %02d:%02d:%02d# ' % (nt.tm_year, nt.tm_mon, nt.tm_mday, nt.tm_hour, nt.tm_min, nt.tm_sec)
 
 
-def get(url, headers=None, timeout=2):
+def get(url, headers=None, timeout=2, decode='utf-8'):
     rt = HttpReturn()
     try:
         if headers is None:
@@ -44,27 +55,48 @@ def get(url, headers=None, timeout=2):
         else:
             req = urllib.request.Request(url, None, headers)
             hr = urllib.request.urlopen(req, timeout=timeout)
-        rt.text = hr.read().decode('utf-8')
-        rt.status = hr.status
         rt.obj = hr
+        rt.text = hr.read().decode(decode)
+        rt.status = hr.status
     finally:
         return rt
 
 
-def post(url, data=None, headers=None, timeout=2):
+def post(url, data=None, headers=None, timeout=2, decode='utf-8'):
     rt = HttpReturn()
     if headers is None:
         headers = {}
-    post_data = urllib.parse.urlencode(data).encode('utf-8')
+    post_data = urllib.parse.urlencode(data).encode(decode)
     try:
         req = urllib.request.Request(url, post_data, headers)
         hr = urllib.request.urlopen(req, timeout=timeout)
         rt = HttpReturn()
+        rt.obj = rt
         rt.text = hr.read().decode('utf-8')
         rt.status = hr.status
-        rt.obj = rt
     finally:
         return rt
+
+
+def down(url, path, headers=None):
+    try:
+        if headers is None:
+            hr = urllib.request.urlopen(url)
+        else:
+            req = urllib.request.Request(url, None, headers)
+            hr = urllib.request.urlopen(req)
+        with open(path, 'wb') as f:
+            f.write(hr.read())
+            f.flush()
+            f.close()
+    except Exception as e:
+        print(e)
+        return False
+    return True
+
+
+def get_md5(username):
+    return hashlib.md5(username.encode()).hexdigest()
 
 
 class UserLogin:
@@ -94,10 +126,11 @@ class UserLogin:
         self.sign_in()
 
     def __set_cookie(self):
-        self.cj = http.cookiejar.MozillaCookieJar('Cookie.txt')   # LWPCookieJar('Cookie.txt')
+        fn = get_md5(self.username) + '.txt'
+        self.cj = http.cookiejar.MozillaCookieJar(fn)   # LWPCookieJar('Cookie.txt')
         if self.mem_pass:
-            if os.path.exists('Cookie.txt'):
-                self.cj.load('Cookie.txt')
+            if os.path.exists(fn):
+                self.cj.load(fn)
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cj))
         urllib.request.install_opener(opener)
         urllib.request.urlopen('http://www.baidu.com/')
@@ -146,16 +179,15 @@ class UserLogin:
     def __get_verify_code(code_string):
         """获取验证码"""
         url = "https://passport.baidu.com/cgi-bin/genimage?" + code_string
-        rsp = get(url)
         path = 'code.jpg'
-        with open(path, 'wb') as f:
-            f.write(rsp.obj.read())
-            f.flush()
-            f.close()
-        os.startfile(path)
-        time.sleep(0.2)
-        code = input("请输入验证码> ")
-        return code
+        if down(url, path):
+            os.startfile(path)
+            time.sleep(0.2)
+            code = input("请输入验证码> ")
+            return code
+        else:
+            print('不能下载验证码!')
+            return ''
 
     def __get_post_data(self, token, codestring, verify_code):
         post_data = {
